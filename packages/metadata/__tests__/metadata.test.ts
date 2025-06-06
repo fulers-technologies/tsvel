@@ -3,6 +3,7 @@
  */
 
 import { Metadata, MetadataStorage, MetadataReflector } from '../src';
+import { it, expect, describe, beforeEach } from '@jest/globals';
 
 describe('Metadata', () => {
   beforeEach(() => {
