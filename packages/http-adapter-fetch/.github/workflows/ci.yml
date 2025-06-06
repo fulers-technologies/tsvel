@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'packages/http-adapter-fetch/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'packages/http-adapter-fetch/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+      working-directory: packages/http-adapter-fetch
+    
+    - name: Run type check
+      run: npm run typecheck
+      working-directory: packages/http-adapter-fetch
+    
+    - name: Run linter
+      run: npm run lint
+      working-directory: packages/http-adapter-fetch
+    
+    - name: Run tests
+      run: npm run test:coverage
+      working-directory: packages/http-adapter-fetch
+    
+    - name: Build package
+      run: npm run build
+      working-directory: packages/http-adapter-fetch
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: packages/http-adapter-fetch/coverage/lcov.info
+        flags: http-adapter-fetch
+        name: codecov-http-adapter-fetch
+

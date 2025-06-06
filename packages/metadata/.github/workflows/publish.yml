@@ -1,0 +1,37 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'metadata-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        registry-url: 'https://registry.npmjs.org'
+    
+    - name: Install dependencies
+      run: npm ci
+      working-directory: packages/metadata
+    
+    - name: Run tests
+      run: npm test
+      working-directory: packages/metadata
+    
+    - name: Build package
+      run: npm run build
+      working-directory: packages/metadata
+    
+    - name: Publish to NPM
+      run: npm publish
+      working-directory: packages/metadata
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
