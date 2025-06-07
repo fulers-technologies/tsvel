@@ -45,6 +45,9 @@
     "url": "https://github.com/tsvel/tsvel/issues"
   },
   "homepage": "https://github.com/tsvel/tsvel/tree/main/packages/decorators#readme",
+  "dependencies": {
+    "reflect-metadata": "^0.1.13"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^18.15.0",
@@ -70,4 +73,3 @@
     "access": "public"
   }
 }
-

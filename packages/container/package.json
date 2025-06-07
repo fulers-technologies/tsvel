@@ -47,7 +47,8 @@
   "homepage": "https://github.com/tsvel/tsvel/tree/main/packages/container#readme",
   "dependencies": {
     "inversify": "^6.0.2",
-    "reflect-metadata": "^0.1.13"
+    "reflect-metadata": "^0.1.13",
+    "@tsvel/decorators": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

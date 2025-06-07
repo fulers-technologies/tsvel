@@ -48,6 +48,30 @@ export enum DecoratorType {
   MIDDLEWARE = 'middleware',
   
   /**
+   * Property and method decorators.
+   * Used for property enhancement, method interception, and metadata annotation.
+   */
+  PROPERTY = 'property',
+  
+  /**
+   * Class decorators.
+   * Used for class enhancement, metadata annotation, and behavior modification.
+   */
+  CLASS = 'class',
+  
+  /**
+   * Method decorators.
+   * Used for method interception, metadata annotation, and behavior modification.
+   */
+  METHOD = 'method',
+  
+  /**
+   * Parameter decorators.
+   * Used for parameter validation, injection, and metadata annotation.
+   */
+  PARAMETER = 'parameter',
+  
+  /**
    * Custom application-specific decorators.
    * Used for domain-specific functionality and custom business logic.
    */

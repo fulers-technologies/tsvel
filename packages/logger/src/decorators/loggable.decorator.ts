@@ -1,3 +1,4 @@
+import { DecoratorFactory } from '@tsvel/decorators';
 import { Logger } from '../logger';
 
 /**
@@ -8,31 +9,35 @@ import { Logger } from '../logger';
  * @returns ClassDecorator - The decorator function
  */
 export function Loggable(options: LoggableOptions = {}): ClassDecorator {
-  return function <T extends { new (...args: any[]): {} }>(constructor: T) {
-    const logger = Logger.make({ class: constructor.name });
-    
-    // Store the logger instance on the class for access by other decorators
-    (constructor as any).__logger = logger;
-    
-    // Log class instantiation if enabled
-    if (options.logInstantiation !== false) {
-      const originalConstructor = constructor;
+  return DecoratorFactory.registerClass(
+    'Loggable',
+    (constructor: any, opts: LoggableOptions) => {
+      const logger = Logger.make({ class: constructor.name });
       
-      const newConstructor = class extends originalConstructor {
-        constructor(...args: any[]) {
-          super(...args);
-          logger.debug(`${constructor.name} instantiated`, { args });
-        }
-      };
+      // Store the logger instance on the class for access by other decorators
+      (constructor as any).__logger = logger;
       
-      // Preserve the original constructor name
-      Object.defineProperty(newConstructor, 'name', { value: constructor.name });
+      // Log class instantiation if enabled
+      if (opts.logInstantiation !== false) {
+        const originalConstructor = constructor;
+        
+        const newConstructor = class extends originalConstructor {
+          constructor(...args: any[]) {
+            super(...args);
+            logger.debug(`${constructor.name} instantiated`, { args });
+          }
+        };
+        
+        // Preserve the original constructor name
+        Object.defineProperty(newConstructor, 'name', { value: constructor.name });
+        
+        return newConstructor as any;
+      }
       
-      return newConstructor as any;
-    }
-    
-    return constructor;
-  };
+      return constructor;
+    },
+    { description: 'Adds logging capabilities to a class' }
+  );
 }
 
 /**

@@ -1,3 +1,4 @@
+import { DecoratorFactory } from '@tsvel/decorators';
 import { IServiceProvider } from '../interfaces/service-provider.interface';
 
 /**
@@ -8,13 +9,17 @@ import { IServiceProvider } from '../interfaces/service-provider.interface';
  * @returns ClassDecorator - The service provider decorator
  */
 export function ServiceProvider(options: ServiceProviderOptions = {}): ClassDecorator {
-  return function <T extends { new (...args: any[]): IServiceProvider }>(target: T) {
-    // Store service provider metadata
-    Reflect.defineMetadata('serviceProvider:options', options, target);
-    Reflect.defineMetadata('serviceProvider:isProvider', true, target);
-    
-    return target;
-  };
+  return DecoratorFactory.registerClass(
+    'ServiceProvider',
+    (target: any, opts: ServiceProviderOptions) => {
+      // Store service provider metadata
+      Reflect.defineMetadata('serviceProvider:options', opts, target);
+      Reflect.defineMetadata('serviceProvider:isProvider', true, target);
+      
+      return target;
+    },
+    { description: 'Marks a class as a service provider' }
+  );
 }
 
 /**

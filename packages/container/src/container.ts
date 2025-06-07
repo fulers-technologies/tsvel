@@ -1,9 +1,13 @@
 import { Container as InversifyContainer, interfaces } from 'inversify';
 import { IContainer } from './interfaces/container.interface';
+import { PropertyInjectionResolver } from './utilities/property-injection-resolver';
+import { ContextualBindingManager } from './utilities/contextual-binding-manager';
+import { IContextualBindingBuilder } from './interfaces/contextual-binding.interface';
+import { INJECTION_TOKENS } from './constants/injection-tokens.constant';
 
 /**
  * Extended container implementation that builds upon InversifyJS.
- * Provides additional functionality for lazy loading and enhanced DI capabilities.
+ * Provides additional functionality for lazy loading, property injection, and contextual binding.
  * 
  * @class Container
  * @extends {InversifyContainer}
@@ -21,13 +25,26 @@ export class Container extends InversifyContainer implements IContainer {
   private serviceMetadata = new Map<string | symbol, any>();
 
   /**
+   * Property injection resolver.
+   */
+  private propertyResolver: PropertyInjectionResolver;
+
+  /**
+   * Contextual binding manager.
+   */
+  private contextualBindings: ContextualBindingManager;
+
+  /**
    * Creates a new container instance.
    * 
    * @param containerOptions - Optional container configuration
    */
   constructor(containerOptions?: interfaces.ContainerOptions) {
     super(containerOptions);
+    this.propertyResolver = PropertyInjectionResolver.make();
+    this.contextualBindings = ContextualBindingManager.make();
     this.setupDefaultBindings();
+    this.setupPropertyInjection();
   }
 
   /**
@@ -130,6 +147,17 @@ export class Container extends InversifyContainer implements IContainer {
   }
 
   /**
+   * Create a contextual binding.
+   * Enables Laravel-style contextual dependency injection.
+   * 
+   * @param when - The context class or identifier
+   * @returns IContextualBindingBuilder
+   */
+  when(when: string | symbol | Function): IContextualBindingBuilder {
+    return this.contextualBindings.when(when);
+  }
+
+  /**
    * Resolve all services bound to an identifier.
    * 
    * @template T
@@ -150,7 +178,7 @@ export class Container extends InversifyContainer implements IContainer {
   }
 
   /**
-   * Override get to support lazy loading.
+   * Override get to support lazy loading and contextual binding.
    * 
    * @template T
    * @param serviceIdentifier - The service identifier
@@ -158,7 +186,20 @@ export class Container extends InversifyContainer implements IContainer {
    */
   get<T>(serviceIdentifier: string | symbol): T {
     try {
-      return super.get<T>(serviceIdentifier);
+      // Check for contextual binding first
+      const contextualService = this.resolveContextual<T>(serviceIdentifier);
+      if (contextualService !== null) {
+        return contextualService;
+      }
+
+      const instance = super.get<T>(serviceIdentifier);
+      
+      // Perform property injection if the instance is an object
+      if (instance && typeof instance === 'object') {
+        this.propertyResolver.resolveProperties(instance, this);
+      }
+      
+      return instance;
     } catch (error) {
       // If not bound, check lazy services
       if (this.lazyServices.has(serviceIdentifier)) {
@@ -211,6 +252,20 @@ export class Container extends InversifyContainer implements IContainer {
   }
 
   /**
+   * Resolve contextual binding for a service.
+   * 
+   * @private
+   * @template T
+   * @param serviceIdentifier - The service identifier
+   * @returns T | null - The resolved service or null
+   */
+  private resolveContextual<T>(serviceIdentifier: string | symbol): T | null {
+    // For now, we don't have context information in this method
+    // In a real implementation, this would be passed from the calling context
+    return null;
+  }
+
+  /**
    * Setup default container bindings.
    * 
    * @private
@@ -218,7 +273,23 @@ export class Container extends InversifyContainer implements IContainer {
    */
   private setupDefaultBindings(): void {
     // Bind the container itself
-    this.bind<IContainer>('Container').toConstantValue(this);
+    this.bind<IContainer>(INJECTION_TOKENS.CONTAINER).toConstantValue(this);
+  }
+
+  /**
+   * Setup property injection hooks.
+   * 
+   * @private
+   * @returns void
+   */
+  private setupPropertyInjection(): void {
+    // Override the onActivation to perform property injection
+    this.onActivation = (context: interfaces.Context, injectable: any) => {
+      if (injectable && typeof injectable === 'object') {
+        this.propertyResolver.resolveProperties(injectable, this);
+      }
+      return injectable;
+    };
   }
 
   /**

@@ -13,6 +13,9 @@ export * from './interfaces';
 // Enums
 export * from './enums';
 
+// Constants
+export * from './constants';
+
 // Utilities
 export * from './utilities';
 
@@ -47,7 +50,18 @@ export {
   ClassToPlain,
 } from './decorators';
 
+// Re-export decorator factory
+export { DecoratorFactory } from './utilities/decorator-factory';
+
 // Re-export commonly used types
 export type { IDecorator, DecoratorRegistration, DecoratorMetadata } from './interfaces/decorator.interface';
 export type { ValidationFunction, ValidationDecoratorOptions, ValidationResult } from './utilities/validation-decorator';
 export type { RegistryStats } from './utilities/decorator-registry';
+export type { 
+  ValidationDecoratorOptions as FactoryValidationOptions,
+  ClassDecoratorOptions,
+  MethodDecoratorOptions,
+  PropertyDecoratorOptions,
+  ParameterDecoratorOptions,
+  CustomDecoratorOptions,
+} from './utilities/decorator-factory';
