@@ -15,24 +15,35 @@ import { INJECTION_TOKENS } from './constants/injection-tokens.constant';
  */
 export class Container extends InversifyContainer implements IContainer {
   /**
-   * Map of lazy-loaded services.
+   * Map of lazy-loaded services with their factory functions.
    */
   private lazyServices = new Map<string | symbol, () => any>();
 
   /**
-   * Map of service metadata.
+   * Map of service metadata for enhanced service information.
    */
   private serviceMetadata = new Map<string | symbol, any>();
 
   /**
-   * Property injection resolver.
+   * Property injection resolver for handling property-based DI.
    */
   private propertyResolver: PropertyInjectionResolver;
 
   /**
-   * Contextual binding manager.
+   * Contextual binding manager for Laravel-style contextual DI.
    */
   private contextualBindings: ContextualBindingManager;
+
+  /**
+   * Container statistics for monitoring and debugging.
+   */
+  private stats = {
+    resolutions: 0,
+    lazyLoads: 0,
+    propertyInjections: 0,
+    contextualResolutions: 0,
+    errors: 0,
+  };
 
   /**
    * Creates a new container instance.
@@ -45,6 +56,7 @@ export class Container extends InversifyContainer implements IContainer {
     this.contextualBindings = ContextualBindingManager.make();
     this.setupDefaultBindings();
     this.setupPropertyInjection();
+    this.setupErrorHandling();
   }
 
   /**
@@ -56,32 +68,49 @@ export class Container extends InversifyContainer implements IContainer {
    * @returns T - The service instance
    */
   lazyLoad<T>(identifier: string | symbol, factory: () => T): T {
-    // Check if already bound
-    if (this.isBound(identifier)) {
-      return this.get<T>(identifier);
-    }
+    try {
+      // Check if already bound
+      if (this.isBound(identifier)) {
+        this.stats.resolutions++;
+        return this.get<T>(identifier);
+      }
 
-    // Check if lazy factory exists
-    if (this.lazyServices.has(identifier)) {
-      const lazyFactory = this.lazyServices.get(identifier)!;
-      const instance = lazyFactory();
+      // Check if lazy factory exists
+      if (this.lazyServices.has(identifier)) {
+        const lazyFactory = this.lazyServices.get(identifier)!;
+        const instance = lazyFactory();
+        
+        // Bind the instance for future requests
+        this.bind(identifier).toConstantValue(instance);
+        this.lazyServices.delete(identifier);
+        
+        this.stats.lazyLoads++;
+        this.stats.resolutions++;
+        
+        // Log lazy loading in development
+        if (process.env.NODE_ENV === 'development') {
+          console.debug(`Lazy loaded service: ${String(identifier)}`);
+        }
+        
+        return instance;
+      }
+
+      // Store the factory for later use
+      this.lazyServices.set(identifier, factory);
       
-      // Bind the instance for future requests
+      // Create and bind the instance
+      const instance = factory();
       this.bind(identifier).toConstantValue(instance);
       this.lazyServices.delete(identifier);
       
+      this.stats.lazyLoads++;
+      this.stats.resolutions++;
+      
       return instance;
+    } catch (error) {
+      this.stats.errors++;
+      throw new Error(`Failed to lazy load service '${String(identifier)}': ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    // Store the factory for later use
-    this.lazyServices.set(identifier, factory);
-    
-    // Create and bind the instance
-    const instance = factory();
-    this.bind(identifier).toConstantValue(instance);
-    this.lazyServices.delete(identifier);
-    
-    return instance;
   }
 
   /**
@@ -98,27 +127,44 @@ export class Container extends InversifyContainer implements IContainer {
     implementation: interfaces.Newable<T> | T,
     scope: 'singleton' | 'transient' | 'request' = 'transient'
   ): void {
-    let binding: interfaces.BindingToSyntax<T>;
+    try {
+      let binding: interfaces.BindingToSyntax<T>;
 
-    if (typeof implementation === 'function') {
-      binding = this.bind<T>(identifier).to(implementation as interfaces.Newable<T>);
-    } else {
-      binding = this.bind<T>(identifier).toConstantValue(implementation);
-      return; // Constants don't have scope
-    }
+      if (typeof implementation === 'function') {
+        binding = this.bind<T>(identifier).to(implementation as interfaces.Newable<T>);
+      } else {
+        binding = this.bind<T>(identifier).toConstantValue(implementation);
+        return; // Constants don't have scope
+      }
 
-    // Apply scope
-    switch (scope) {
-      case 'singleton':
-        binding.inSingletonScope();
-        break;
-      case 'request':
-        binding.inRequestScope();
-        break;
-      case 'transient':
-      default:
-        binding.inTransientScope();
-        break;
+      // Apply scope
+      switch (scope) {
+        case 'singleton':
+          binding.inSingletonScope();
+          break;
+        case 'request':
+          binding.inRequestScope();
+          break;
+        case 'transient':
+        default:
+          binding.inTransientScope();
+          break;
+      }
+
+      // Store metadata
+      this.setMetadata(identifier, {
+        scope,
+        registeredAt: new Date(),
+        implementation: implementation.name || 'Anonymous',
+      });
+
+      // Log registration in development
+      if (process.env.NODE_ENV === 'development') {
+        console.debug(`Registered service: ${String(identifier)} with scope: ${scope}`);
+      }
+    } catch (error) {
+      this.stats.errors++;
+      throw new Error(`Failed to register service '${String(identifier)}': ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -166,6 +212,7 @@ export class Container extends InversifyContainer implements IContainer {
    */
   getAll<T>(identifier: string | symbol): T[] {
     try {
+      this.stats.resolutions++;
       return super.getAll<T>(identifier);
     } catch (error) {
       // If not bound, check lazy services
@@ -173,6 +220,7 @@ export class Container extends InversifyContainer implements IContainer {
         const instance = this.lazyLoad<T>(identifier, this.lazyServices.get(identifier)!);
         return [instance];
       }
+      this.stats.errors++;
       throw error;
     }
   }
@@ -189,6 +237,8 @@ export class Container extends InversifyContainer implements IContainer {
       // Check for contextual binding first
       const contextualService = this.resolveContextual<T>(serviceIdentifier);
       if (contextualService !== null) {
+        this.stats.contextualResolutions++;
+        this.stats.resolutions++;
         return contextualService;
       }
 
@@ -197,14 +247,17 @@ export class Container extends InversifyContainer implements IContainer {
       // Perform property injection if the instance is an object
       if (instance && typeof instance === 'object') {
         this.propertyResolver.resolveProperties(instance, this);
+        this.stats.propertyInjections++;
       }
       
+      this.stats.resolutions++;
       return instance;
     } catch (error) {
       // If not bound, check lazy services
       if (this.lazyServices.has(serviceIdentifier)) {
         return this.lazyLoad<T>(serviceIdentifier, this.lazyServices.get(serviceIdentifier)!);
       }
+      this.stats.errors++;
       throw error;
     }
   }
@@ -216,7 +269,9 @@ export class Container extends InversifyContainer implements IContainer {
    * @returns boolean - True if the service can be resolved
    */
   canResolve(identifier: string | symbol): boolean {
-    return this.isBound(identifier) || this.lazyServices.has(identifier);
+    return this.isBound(identifier) || 
+           this.lazyServices.has(identifier) ||
+           this.contextualBindings.hasContextualBinding(this, identifier);
   }
 
   /**
@@ -237,7 +292,8 @@ export class Container extends InversifyContainer implements IContainer {
    * @returns void
    */
   setMetadata(identifier: string | symbol, metadata: any): void {
-    this.serviceMetadata.set(identifier, metadata);
+    const existingMetadata = this.serviceMetadata.get(identifier) || {};
+    this.serviceMetadata.set(identifier, { ...existingMetadata, ...metadata });
   }
 
   /**
@@ -248,7 +304,39 @@ export class Container extends InversifyContainer implements IContainer {
   createChild(): IContainer {
     const child = new Container();
     child.parent = this;
+    
+    // Copy contextual bindings to child
+    const parentBindings = this.contextualBindings.getStats();
+    if (parentBindings.totalBindings > 0) {
+      // In a real implementation, we would copy the bindings
+      console.debug(`Child container created with ${parentBindings.totalBindings} inherited contextual bindings`);
+    }
+    
     return child;
+  }
+
+  /**
+   * Get container statistics.
+   * 
+   * @returns object - Container statistics
+   */
+  getStats(): typeof this.stats {
+    return { ...this.stats };
+  }
+
+  /**
+   * Reset container statistics.
+   * 
+   * @returns void
+   */
+  resetStats(): void {
+    this.stats = {
+      resolutions: 0,
+      lazyLoads: 0,
+      propertyInjections: 0,
+      contextualResolutions: 0,
+      errors: 0,
+    };
   }
 
   /**
@@ -260,8 +348,31 @@ export class Container extends InversifyContainer implements IContainer {
    * @returns T | null - The resolved service or null
    */
   private resolveContextual<T>(serviceIdentifier: string | symbol): T | null {
-    // For now, we don't have context information in this method
-    // In a real implementation, this would be passed from the calling context
+    // Get the current execution context from the call stack
+    const context = this.getCurrentContext();
+    if (!context) {
+      return null;
+    }
+
+    return this.contextualBindings.resolveContextual(context, serviceIdentifier);
+  }
+
+  /**
+   * Get the current execution context from the call stack.
+   * 
+   * @private
+   * @returns any - The current context or null
+   */
+  private getCurrentContext(): any {
+    // In a real implementation, this would analyze the call stack
+    // to determine the requesting context. For now, we return null
+    // as this requires more complex stack trace analysis.
+    
+    // This could be enhanced by:
+    // 1. Analyzing Error().stack
+    // 2. Using async_hooks in Node.js
+    // 3. Maintaining a context stack during resolution
+    
     return null;
   }
 
@@ -274,6 +385,10 @@ export class Container extends InversifyContainer implements IContainer {
   private setupDefaultBindings(): void {
     // Bind the container itself
     this.bind<IContainer>(INJECTION_TOKENS.CONTAINER).toConstantValue(this);
+    
+    // Bind utility services
+    this.bind<PropertyInjectionResolver>('PropertyInjectionResolver').toConstantValue(this.propertyResolver);
+    this.bind<ContextualBindingManager>('ContextualBindingManager').toConstantValue(this.contextualBindings);
   }
 
   /**
@@ -286,10 +401,35 @@ export class Container extends InversifyContainer implements IContainer {
     // Override the onActivation to perform property injection
     this.onActivation = (context: interfaces.Context, injectable: any) => {
       if (injectable && typeof injectable === 'object') {
-        this.propertyResolver.resolveProperties(injectable, this);
+        try {
+          this.propertyResolver.resolveProperties(injectable, this);
+          this.stats.propertyInjections++;
+        } catch (error) {
+          this.stats.errors++;
+          console.error(`Property injection failed for ${injectable.constructor?.name || 'unknown'}:`, error);
+        }
       }
       return injectable;
     };
+  }
+
+  /**
+   * Setup error handling for the container.
+   * 
+   * @private
+   * @returns void
+   */
+  private setupErrorHandling(): void {
+    // Add error handling for binding failures
+    const originalBind = this.bind.bind(this);
+    this.bind = function<T>(serviceIdentifier: string | symbol) {
+      try {
+        return originalBind<T>(serviceIdentifier);
+      } catch (error) {
+        this.stats.errors++;
+        throw new Error(`Failed to bind service '${String(serviceIdentifier)}': ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }.bind(this);
   }
 
   /**

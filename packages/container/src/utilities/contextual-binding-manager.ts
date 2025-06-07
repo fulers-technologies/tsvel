@@ -8,9 +8,24 @@ import { IContextualBinding, IContextualBindingBuilder, IContextualBindingNeedsB
  */
 export class ContextualBindingManager {
   /**
-   * Map of contextual bindings.
+   * Map of contextual bindings organized by context.
    */
   private bindings = new Map<string, IContextualBinding[]>();
+
+  /**
+   * Cache for resolved contextual services to improve performance.
+   */
+  private resolutionCache = new Map<string, any>();
+
+  /**
+   * Statistics for contextual binding usage.
+   */
+  private stats = {
+    totalBindings: 0,
+    resolutionCount: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+  };
 
   /**
    * Register a contextual binding.
@@ -19,13 +34,39 @@ export class ContextualBindingManager {
    * @returns void
    */
   registerBinding(binding: IContextualBinding): void {
+    if (!this.validateBinding(binding)) {
+      throw new Error(`Invalid contextual binding: ${JSON.stringify(binding)}`);
+    }
+
     const contextKey = this.getContextKey(binding.when);
     
     if (!this.bindings.has(contextKey)) {
       this.bindings.set(contextKey, []);
     }
     
-    this.bindings.get(contextKey)!.push(binding);
+    const bindings = this.bindings.get(contextKey)!;
+    
+    // Check for duplicate bindings
+    const existingIndex = bindings.findIndex(b => 
+      this.matchesService(b.needs, binding.needs)
+    );
+    
+    if (existingIndex >= 0) {
+      // Replace existing binding
+      bindings[existingIndex] = binding;
+    } else {
+      // Add new binding
+      bindings.push(binding);
+      this.stats.totalBindings++;
+    }
+
+    // Clear cache when bindings change
+    this.clearResolutionCache();
+
+    // Log binding registration in development
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`Registered contextual binding: ${contextKey} needs ${String(binding.needs)}`);
+    }
   }
 
   /**
@@ -46,15 +87,40 @@ export class ContextualBindingManager {
    * @returns any | null - The resolved service or null if no binding found
    */
   resolveContextual(context: any, serviceIdentifier: string | symbol): any | null {
+    const cacheKey = this.getCacheKey(context, serviceIdentifier);
+    
+    // Check cache first
+    if (this.resolutionCache.has(cacheKey)) {
+      this.stats.cacheHits++;
+      return this.resolutionCache.get(cacheKey);
+    }
+
+    this.stats.cacheMisses++;
+    this.stats.resolutionCount++;
+
     const contextKey = this.getContextKey(context);
     const bindings = this.bindings.get(contextKey) || [];
     
     for (const binding of bindings) {
       if (this.matchesService(binding.needs, serviceIdentifier)) {
+        let resolvedService: any;
+
         if (typeof binding.give === 'function') {
-          return binding.give();
+          try {
+            resolvedService = binding.give();
+          } catch (error) {
+            throw new Error(`Failed to resolve contextual binding for ${contextKey}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        } else {
+          resolvedService = binding.give;
         }
-        return binding.give;
+
+        // Cache the resolved service based on scope
+        if (binding.scope === 'singleton') {
+          this.resolutionCache.set(cacheKey, resolvedService);
+        }
+
+        return resolvedService;
       }
     }
     
@@ -69,7 +135,12 @@ export class ContextualBindingManager {
    * @returns boolean
    */
   hasContextualBinding(context: any, serviceIdentifier: string | symbol): boolean {
-    return this.resolveContextual(context, serviceIdentifier) !== null;
+    const contextKey = this.getContextKey(context);
+    const bindings = this.bindings.get(contextKey) || [];
+    
+    return bindings.some(binding => 
+      this.matchesService(binding.needs, serviceIdentifier)
+    );
   }
 
   /**
@@ -80,7 +151,51 @@ export class ContextualBindingManager {
    */
   getBindingsForContext(context: any): IContextualBinding[] {
     const contextKey = this.getContextKey(context);
-    return this.bindings.get(contextKey) || [];
+    return [...(this.bindings.get(contextKey) || [])]; // Return copy to prevent mutation
+  }
+
+  /**
+   * Remove a specific contextual binding.
+   * 
+   * @param context - The context
+   * @param serviceIdentifier - The service identifier
+   * @returns boolean - True if binding was removed
+   */
+  removeBinding(context: any, serviceIdentifier: string | symbol): boolean {
+    const contextKey = this.getContextKey(context);
+    const bindings = this.bindings.get(contextKey);
+    
+    if (!bindings) {
+      return false;
+    }
+
+    const initialLength = bindings.length;
+    const filteredBindings = bindings.filter(binding => 
+      !this.matchesService(binding.needs, serviceIdentifier)
+    );
+
+    if (filteredBindings.length < initialLength) {
+      if (filteredBindings.length === 0) {
+        this.bindings.delete(contextKey);
+      } else {
+        this.bindings.set(contextKey, filteredBindings);
+      }
+      
+      this.stats.totalBindings -= (initialLength - filteredBindings.length);
+      this.clearResolutionCache();
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Get statistics about contextual binding usage.
+   * 
+   * @returns object - Statistics object
+   */
+  getStats(): typeof this.stats {
+    return { ...this.stats };
   }
 
   /**
@@ -90,6 +205,39 @@ export class ContextualBindingManager {
    */
   clear(): void {
     this.bindings.clear();
+    this.clearResolutionCache();
+    this.stats = {
+      totalBindings: 0,
+      resolutionCount: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+    };
+  }
+
+  /**
+   * Clear the resolution cache.
+   * 
+   * @private
+   * @returns void
+   */
+  private clearResolutionCache(): void {
+    this.resolutionCache.clear();
+  }
+
+  /**
+   * Get a cache key for resolution caching.
+   * 
+   * @private
+   * @param context - The context
+   * @param serviceIdentifier - The service identifier
+   * @returns string
+   */
+  private getCacheKey(context: any, serviceIdentifier: string | symbol): string {
+    const contextKey = this.getContextKey(context);
+    const serviceKey = typeof serviceIdentifier === 'symbol' 
+      ? serviceIdentifier.toString() 
+      : String(serviceIdentifier);
+    return `${contextKey}:${serviceKey}`;
   }
 
   /**
@@ -109,6 +257,9 @@ export class ContextualBindingManager {
     if (typeof context === 'function') {
       return context.name || context.toString();
     }
+    if (context && typeof context === 'object') {
+      return context.constructor?.name || Object.prototype.toString.call(context);
+    }
     return String(context);
   }
 
@@ -125,6 +276,25 @@ export class ContextualBindingManager {
   }
 
   /**
+   * Validate a contextual binding configuration.
+   * 
+   * @private
+   * @param binding - The binding to validate
+   * @returns boolean
+   */
+  private validateBinding(binding: IContextualBinding): boolean {
+    if (!binding.when || !binding.needs || binding.give === undefined) {
+      return false;
+    }
+
+    if (binding.scope && !['singleton', 'transient', 'request'].includes(binding.scope)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Create a new contextual binding manager instance.
    * Factory method following the framework's .make() pattern.
    * 
@@ -134,6 +304,24 @@ export class ContextualBindingManager {
   static make(): ContextualBindingManager {
     return new ContextualBindingManager();
   }
+
+  /**
+   * Get the singleton contextual binding manager instance.
+   * 
+   * @static
+   * @returns ContextualBindingManager
+   */
+  static getInstance(): ContextualBindingManager {
+    if (!ContextualBindingManager.instance) {
+      ContextualBindingManager.instance = new ContextualBindingManager();
+    }
+    return ContextualBindingManager.instance;
+  }
+
+  /**
+   * Singleton instance.
+   */
+  private static instance: ContextualBindingManager;
 }
 
 /**
@@ -198,6 +386,7 @@ class ContextualBindingNeedsBuilder implements IContextualBindingNeedsBuilder {
       when: this.when,
       needs: this.needs,
       give: implementation,
+      scope: 'transient', // Default scope
     });
   }
 
