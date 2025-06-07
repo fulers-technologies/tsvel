@@ -95,3 +95,5 @@ export abstract class BaseServiceProvider implements IServiceProvider {
     return this.app.container.isBound(identifier);
   }
 }
+
+export { BaseServiceProvider }
