@@ -1,3 +1,4 @@
+import { BaseServiceProvider } from '@tsvel/application';
 import { DecoratorRegistry } from '../utilities/decorator-registry';
 import { DecoratorType } from '../enums/decorator-type.enum';
 
@@ -6,143 +7,87 @@ import { DecoratorType } from '../enums/decorator-type.enum';
  * Manages registration and configuration of decorator services within the application.
  * 
  * @class DecoratorsServiceProvider
+ * @extends {BaseServiceProvider}
  */
-export class DecoratorsServiceProvider {
-  private static instance: DecoratorsServiceProvider;
-  private registry: DecoratorRegistry;
-
+export class DecoratorsServiceProvider extends BaseServiceProvider {
   /**
-   * Private constructor to enforce singleton pattern.
-   * Use DecoratorsServiceProvider.getInstance() to access the instance.
-   */
-  private constructor() {
-    this.registry = DecoratorRegistry.getInstance();
-  }
-
-  /**
-   * Gets the singleton service provider instance.
-   * Creates one if it doesn't exist.
-   * 
-   * @returns DecoratorsServiceProvider - The singleton service provider instance
-   */
-  static getInstance(): DecoratorsServiceProvider {
-    if (!DecoratorsServiceProvider.instance) {
-      DecoratorsServiceProvider.instance = new DecoratorsServiceProvider();
-    }
-    return DecoratorsServiceProvider.instance;
-  }
-
-  /**
-   * Creates a new service provider instance.
-   * Factory method following the framework's .make() pattern.
-   * 
-   * @returns DecoratorsServiceProvider - A new service provider instance
-   */
-  static make(): DecoratorsServiceProvider {
-    return new DecoratorsServiceProvider();
-  }
-
-  /**
-   * Registers the decorator service with the application container.
+   * Register the decorator service with the application container.
    * Sets up default decorator configuration and bindings.
    * 
    * @returns void
    */
   register(): void {
-    // Initialize the decorator registry
-    this.initializeRegistry();
+    // Register the decorator registry
+    this.singleton<DecoratorRegistry>('DecoratorRegistry', DecoratorRegistry);
     
-    // Register built-in decorators
-    this.registerBuiltInDecorators();
+    // Register decorator factory for creating registry instances
+    this.bind<() => DecoratorRegistry>('DecoratorRegistryFactory', () => {
+      return () => DecoratorRegistry.make();
+    });
     
-    // Register with dependency injection container if available
-    this.registerWithContainer();
+    // Register the default registry instance
+    this.bind<DecoratorRegistry>('DefaultDecoratorRegistry', () => DecoratorRegistry.getInstance());
   }
 
   /**
-   * Boots the decorator service after all services are registered.
+   * Boot the decorator service after all services are registered.
    * Performs any initialization that requires other services to be available.
    * 
    * @returns void
    */
   boot(): void {
-    // Load cached decorator metadata
-    this.loadDecoratorCache();
+    // Initialize the decorator registry
+    this.initializeRegistry();
     
-    // Set up decorator validation
-    this.setupDecoratorValidation();
-    
-    // Initialize decorator monitoring
-    this.initializeMonitoring();
+    // Register built-in decorators
+    this.registerBuiltInDecorators();
   }
 
   /**
-   * Gets the decorator registry managed by this service provider.
-   * 
-   * @returns DecoratorRegistry - The decorator registry instance
-   */
-  getRegistry(): DecoratorRegistry {
-    return this.registry;
-  }
-
-  /**
-   * Registers a custom decorator with the registry.
-   * 
-   * @param decorator - The decorator function to register
-   * @param metadata - Metadata about the decorator
-   * @returns void
-   */
-  registerDecorator(decorator: Function, metadata: any): void {
-    this.registry.registerDecorator(decorator, metadata);
-  }
-
-  /**
-   * Gets statistics about registered decorators.
-   * 
-   * @returns any - Statistics about the decorator registry
-   */
-  getStats(): any {
-    return this.registry.getStats();
-  }
-
-  /**
-   * Initializes the decorator registry with default settings.
+   * Initialize the decorator registry with default settings.
+   * Sets up the registry configuration.
    * 
    * @private
    * @returns void
    */
   private initializeRegistry(): void {
+    const registry = this.resolve<DecoratorRegistry>('DecoratorRegistry');
+    
     // Clear any existing registrations
-    this.registry.clear();
+    registry.clear();
     
     // Set up registry configuration
     this.configureRegistry();
   }
 
   /**
-   * Registers built-in decorators from class-validator and class-transformer.
+   * Register built-in decorators from class-validator and class-transformer.
+   * Sets up the default decorator ecosystem.
    * 
    * @private
    * @returns void
    */
   private registerBuiltInDecorators(): void {
+    const registry = this.resolve<DecoratorRegistry>('DecoratorRegistry');
+    
     // Register validation decorators
-    this.registerValidationDecorators();
+    this.registerValidationDecorators(registry);
     
     // Register transformation decorators
-    this.registerTransformationDecorators();
+    this.registerTransformationDecorators(registry);
     
     // Register framework-specific decorators
-    this.registerFrameworkDecorators();
+    this.registerFrameworkDecorators(registry);
   }
 
   /**
-   * Registers validation decorators from class-validator.
+   * Register validation decorators from class-validator.
    * 
    * @private
+   * @param registry - The decorator registry
    * @returns void
    */
-  private registerValidationDecorators(): void {
+  private registerValidationDecorators(registry: DecoratorRegistry): void {
     const validationDecorators = [
       { name: 'IsDefined', description: 'Checks if the value is defined' },
       { name: 'IsString', description: 'Checks if the value is a string' },
@@ -161,7 +106,7 @@ export class DecoratorsServiceProvider {
     ];
 
     validationDecorators.forEach(({ name, description }) => {
-      this.registry.registerDecorator(
+      registry.registerDecorator(
         function () { /* stub */ },
         {
           id: `class-validator.${name}`,
@@ -176,12 +121,13 @@ export class DecoratorsServiceProvider {
   }
 
   /**
-   * Registers transformation decorators from class-transformer.
+   * Register transformation decorators from class-transformer.
    * 
    * @private
+   * @param registry - The decorator registry
    * @returns void
    */
-  private registerTransformationDecorators(): void {
+  private registerTransformationDecorators(registry: DecoratorRegistry): void {
     const transformationDecorators = [
       { name: 'Expose', description: 'Marks a property to be exposed during transformation' },
       { name: 'Exclude', description: 'Marks a property to be excluded during transformation' },
@@ -192,7 +138,7 @@ export class DecoratorsServiceProvider {
     ];
 
     transformationDecorators.forEach(({ name, description }) => {
-      this.registry.registerDecorator(
+      registry.registerDecorator(
         function () { /* stub */ },
         {
           id: `class-transformer.${name}`,
@@ -207,12 +153,13 @@ export class DecoratorsServiceProvider {
   }
 
   /**
-   * Registers framework-specific decorators.
+   * Register framework-specific decorators.
    * 
    * @private
+   * @param registry - The decorator registry
    * @returns void
    */
-  private registerFrameworkDecorators(): void {
+  private registerFrameworkDecorators(registry: DecoratorRegistry): void {
     // Register decorators from other TSVEL packages
     const frameworkDecorators = [
       { name: 'Injectable', type: DecoratorType.INJECTION, description: 'Marks a class as injectable' },
@@ -226,7 +173,7 @@ export class DecoratorsServiceProvider {
     ];
 
     frameworkDecorators.forEach(({ name, type, description }) => {
-      this.registry.registerDecorator(
+      registry.registerDecorator(
         function () { /* stub */ },
         {
           id: `tsvel.${name}`,
@@ -241,21 +188,7 @@ export class DecoratorsServiceProvider {
   }
 
   /**
-   * Registers the decorator service with the dependency injection container.
-   * 
-   * @private
-   * @returns void
-   */
-  private registerWithContainer(): void {
-    // In a real implementation, this would register with the DI container
-    // For now, we'll store it globally for access
-    if (typeof globalThis !== 'undefined') {
-      (globalThis as any).__tsvel_decorators = this.registry;
-    }
-  }
-
-  /**
-   * Configures the decorator registry with application-specific settings.
+   * Configure the decorator registry with application-specific settings.
    * 
    * @private
    * @returns void
@@ -269,45 +202,10 @@ export class DecoratorsServiceProvider {
       console.log('Decorator registry configured for development environment');
     }
   }
-
-  /**
-   * Loads cached decorator metadata from storage.
-   * 
-   * @private
-   * @returns void
-   */
-  private loadDecoratorCache(): void {
-    // In a real implementation, this would load from JSON cache files
-    // For now, we'll just log that caching is available
-    console.log('Decorator cache loading is available');
-  }
-
-  /**
-   * Sets up decorator validation to ensure proper usage.
-   * 
-   * @private
-   * @returns void
-   */
-  private setupDecoratorValidation(): void {
-    // Set up validation rules for decorator usage
-    // This could include checking for conflicting decorators, etc.
-    console.log('Decorator validation is set up');
-  }
-
-  /**
-   * Initializes monitoring for decorator usage and performance.
-   * 
-   * @private
-   * @returns void
-   */
-  private initializeMonitoring(): void {
-    // Set up monitoring for decorator performance and usage
-    console.log('Decorator monitoring is initialized');
-  }
 }
 
 /**
  * Singleton instance of the decorators service provider.
  * Provides convenient access to the service provider throughout the application.
  */
-export const decoratorsServiceProvider = DecoratorsServiceProvider.getInstance();
+export const decoratorsServiceProvider = new DecoratorsServiceProvider(null as any);

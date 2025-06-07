@@ -1,53 +1,73 @@
-/**
- * Service provider for metadata functionality
- */
+import { BaseServiceProvider } from '@tsvel/application';
 import { Metadata } from '../metadata';
 import { MetadataStorage } from '../utilities/metadata-storage';
 import { MetadataReflector } from '../utilities/metadata-reflector';
 
-export class MetadataServiceProvider {
-  private static instance: MetadataServiceProvider;
-
-  private constructor() {}
-
+/**
+ * Service provider for metadata functionality.
+ * Manages registration and configuration of metadata services within the application.
+ * 
+ * @class MetadataServiceProvider
+ * @extends {BaseServiceProvider}
+ */
+export class MetadataServiceProvider extends BaseServiceProvider {
   /**
-   * Get singleton instance
-   */
-  static getInstance(): MetadataServiceProvider {
-    if (!MetadataServiceProvider.instance) {
-      MetadataServiceProvider.instance = new MetadataServiceProvider();
-    }
-    return MetadataServiceProvider.instance;
-  }
-
-  /**
-   * Register the metadata service
+   * Register the metadata service with the application container.
+   * Sets up metadata system and bindings.
+   * 
+   * @returns void
    */
   register(): void {
-    // Initialize metadata system
-    this.initializeMetadata();
+    // Register metadata storage
+    this.singleton<MetadataStorage>('MetadataStorage', MetadataStorage);
+    
+    // Register metadata reflector
+    this.singleton<MetadataReflector>('MetadataReflector', MetadataReflector);
+    
+    // Register metadata facade
+    this.bind<typeof Metadata>('Metadata', () => Metadata);
+    
+    // Register metadata factory for creating reflector instances
+    this.bind<() => MetadataReflector>('MetadataReflectorFactory', () => {
+      return () => new MetadataReflector();
+    });
   }
 
   /**
-   * Boot the metadata service
+   * Boot the metadata service after all services are registered.
+   * Performs any initialization that requires other services to be available.
+   * 
+   * @returns void
    */
   boot(): void {
-    // Perform any boot-time initialization
+    // Initialize metadata system
+    this.initializeMetadata();
+    
+    // Set up Reflect polyfill if needed
     this.setupReflectPolyfill();
   }
 
   /**
-   * Initialize metadata system
+   * Initialize metadata system with default configuration.
+   * Sets up the metadata storage and reflector.
+   * 
+   * @private
+   * @returns void
    */
   private initializeMetadata(): void {
     // Set up default storage if needed
     if (!Metadata.getStorage()) {
-      Metadata.setStorage(new MetadataStorage());
+      const storage = this.resolve<MetadataStorage>('MetadataStorage');
+      Metadata.setStorage(storage);
     }
   }
 
   /**
-   * Set up Reflect metadata polyfill if needed
+   * Set up Reflect metadata polyfill if needed.
+   * Ensures that metadata functionality is available in all environments.
+   * 
+   * @private
+   * @returns void
    */
   private setupReflectPolyfill(): void {
     if (typeof Reflect === 'undefined') {
@@ -63,35 +83,10 @@ export class MetadataServiceProvider {
       };
     }
   }
-
-  /**
-   * Get metadata instance
-   */
-  getMetadata(): typeof Metadata {
-    return Metadata;
-  }
-
-  /**
-   * Get metadata storage
-   */
-  getStorage() {
-    return Metadata.getStorage();
-  }
-
-  /**
-   * Get metadata reflector
-   */
-  getReflector() {
-    return Metadata.getReflector();
-  }
-
-  /**
-   * Create a new metadata reflector instance
-   */
-  createReflector(): MetadataReflector {
-    return new MetadataReflector();
-  }
 }
 
-// Export singleton instance
-export const metadataServiceProvider = MetadataServiceProvider.getInstance();
+/**
+ * Singleton instance of the metadata service provider.
+ * Provides convenient access to the service provider throughout the application.
+ */
+export const metadataServiceProvider = new MetadataServiceProvider(null as any);
