@@ -32,4 +32,19 @@ export interface IDeferredServiceProvider {
    * @returns void | Promise<void>
    */
   boot(): void | Promise<void>;
+
+  /**
+   * Check if this provider provides a specific service.
+   * 
+   * @param identifier - The service identifier to check
+   * @returns boolean - True if this provider provides the service
+   */
+  providesService(identifier: string | symbol): boolean;
+
+  /**
+   * Check if this provider has been loaded.
+   * 
+   * @returns boolean - True if the provider has been loaded
+   */
+  isLoaded(): boolean;
 }
